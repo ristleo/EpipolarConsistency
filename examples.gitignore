@@ -14,3 +14,4 @@
 config/example_data/proj000.nrrd
 config/example_data/proj040.nrrd
 config/VisualizeECC.ini
+config/VisualizeECC_RadonIntermediate.ini

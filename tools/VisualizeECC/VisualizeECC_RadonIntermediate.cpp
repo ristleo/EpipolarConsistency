@@ -1,6 +1,12 @@
 ﻿// NRRD Image File Format
 #include <NRRD/nrrd_image.hxx>
 
+// Fourier Transform
+#include<fftw3.h>
+#include<unsupported\Eigen\FFT>
+
+
+
 // Simple CUDA Wrappers
 #include <LibUtilsCuda/CudaBindlessTexture.h>
 typedef UtilsCuda::BindlessTexture2D<float> CudaTexture;
@@ -66,6 +72,12 @@ void gui(const GetSetInternal::Node& node)
 		std::vector<float> redundant_samples0, redundant_samples1;
 		std::vector<float> kappas;
 		std::vector<std::pair<float,float> > rif_samples0, rif_samples1;
+		
+		// TODO hier die eigene Funktion mit fourierTransformation und ramp filter implementieren
+		//fftwf_execute_dft()
+		Eigen::FFT<float> fft;
+		//fft.fwd();
+
 		// Slow CPU evaluation for just two views
 		// (usually, you just call ecc.evaluate(...) which uses the GPU to compute metric for all projections)
 		EpipolarConsistency::MetricRadonIntermediate ecc(Ps,rifs);
@@ -99,17 +111,21 @@ void gui(const GetSetInternal::Node& node)
 		rif1->readback();
 		Figure fig1("Radon Intermediate Function 1", rif1->data(),0,0,true);
 
-//#ifndef DEBUG
-//		// Show sample locations (slow)
-//		double n_alpha2=0.5*rif0->data().size(0);
-//		double n_t2    =0.5*rif0->data().size(1);
-//		double step_alpha=rif1->getRadonBinSize(0);
-//		double step_t=rif1->getRadonBinSize(1);
-//		for (int i=0; i<(int)rif_samples0.size(); i++)
-//			fig0.drawPoint(rif_samples0[i].first/step_alpha+n_alpha2, rif_samples0[i].second/step_t+n_t2,black);
-//		for (int i=0; i<(int)rif_samples1.size(); i++)
-//			fig1.drawPoint(rif_samples1[i].first/step_alpha+n_alpha2, rif_samples1[i].second/step_t+n_t2,red);
-//#endif
+#ifndef DEBUG
+		// Show sample locations (slow)
+		using namespace std;
+		bool check = rif0->isDerivative();
+		double n_alpha2=0.5*rif0->data().size(0);
+		double n_t2    =0.5*rif0->data().size(1);
+		double step_alpha=rif1->getRadonBinSize(0);
+		double step_t=rif1->getRadonBinSize(1);
+		for (int i = 0; i < (int)rif_samples0.size(); i+=8) {
+			fig0.drawPoint(rif_samples0[i].first / step_alpha + n_alpha2, rif_samples0[i].second / step_t + n_t2, black);
+			//for (int i=0; i<(int)rif_samples1.size(); i++)
+			//cout << rif_samples0[i].second / step_t + n_t2 << endl;
+			fig1.drawPoint(rif_samples1[i].first / step_alpha + n_alpha2, rif_samples1[i].second / step_t + n_t2, red);
+		}
+#endif
 
 		g_app.progressEnd();
 	}
