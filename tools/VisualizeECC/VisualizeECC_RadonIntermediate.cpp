@@ -5,8 +5,6 @@
 #include<fftw3.h>
 #include<unsupported\Eigen\FFT>
 
-
-
 // Simple CUDA Wrappers
 #include <LibUtilsCuda/CudaBindlessTexture.h>
 typedef UtilsCuda::BindlessTexture2D<float> CudaTexture;
@@ -75,9 +73,115 @@ void gui(const GetSetInternal::Node& node)
 		
 		// TODO hier die eigene Funktion mit fourierTransformation und ramp filter implementieren
 		//fftwf_execute_dft()
-		Eigen::FFT<float> fft;
-		//fft.fwd();
+		using namespace std;
+		using namespace EpipolarConsistency;
+		std::vector<float*> cols0;
+		int arraysize =  rif0->getRadonBinNumber(0);
+		rif0->readback();
 
+
+
+
+		//initialize size of pointers
+
+		float* transformed = (float*) malloc(sizeof(float)*arraysize*arraysize);
+		float* inverted = (float*)malloc(sizeof(float)*arraysize*arraysize);
+		float* filteredF = (float*)malloc(sizeof(float)*arraysize*arraysize);
+		float* filteredO = (float*)malloc(sizeof(float)*arraysize*arraysize);
+
+
+		float maxF = 0;
+		float maxO = 0;
+
+
+		for (int j = 0; j < rif0->getRadonBinNumber(1); j++) {
+			//float* cur_col = new float[arraysize]();
+			fftw_complex *in, *out, *infftFiltered, *outfftFiltered;
+			fftw_plan p, pBack, pBackFiltered;
+
+			in = (fftw_complex*)fftw_malloc(sizeof(fftw_complex)*arraysize);
+			out = (fftw_complex*)fftw_malloc(sizeof(fftw_complex)*arraysize);
+			infftFiltered = (fftw_complex*)fftw_malloc(sizeof(fftw_complex)*arraysize);
+			outfftFiltered = (fftw_complex*)fftw_malloc(sizeof(fftw_complex)*arraysize);
+
+
+			p = fftw_plan_dft_1d(arraysize, in, out, FFTW_FORWARD, FFTW_ESTIMATE); //fourier transform
+			pBack = fftw_plan_dft_1d(arraysize, out, in, FFTW_BACKWARD, FFTW_ESTIMATE); // backtransform to original image
+			pBackFiltered = fftw_plan_dft_1d(arraysize, infftFiltered, outfftFiltered, FFTW_BACKWARD, FFTW_ESTIMATE); //backtransform of filtered image
+
+
+			for (int i = 0; i < arraysize; i++) {
+			
+				in[i][0] = rif0->data().pixel(j, i); //real
+				in[i][1] = 0.0; //complex
+
+
+
+				//cout <<"in "<< in[i][0] << endl;
+				//cout << "data " << rif0->data().pixel(i, j) << endl;
+
+				//cur_col[i] = rif0->data().pixel(i, j);
+				//ges[i+arraysize*j] = rif0->data().pixel( j, i);
+			}
+			//cols0.push_back(cur_col);
+			fftw_execute(p);
+			
+			for (int i = 0; i < arraysize; i++) {
+
+				//simply setting an logarithmic scale for output
+				transformed[j + arraysize*i] = (float) log(sqrt(out[i][0]*out[i][0]+ out[i][1] * out[i][1])+1);
+				//applying ramp filter with origin in arraysize/2 and an maximum amplitude of 1
+				filteredF[j + arraysize*i] = transformed[j + arraysize*i] * abs(arraysize / 2 - i)/(arraysize/2);
+				
+				//setting out for inverse transformation to filtered
+				infftFiltered[i][0] = filteredF[j + arraysize*i];
+				infftFiltered[i][1] = out[i][1];
+
+
+				if (transformed[j + arraysize*i] > maxF) { maxF = transformed[j + arraysize*i]; }
+
+
+				//cout << out[i][0] << endl;
+			}
+			fftw_execute(pBack);
+			fftw_execute(pBackFiltered);
+			
+			//progress
+			//cout <<"\t\t"<< (float) j / arraysize << endl;
+
+			for (int i = 0; i < arraysize; i++) {
+
+				filteredO[j + arraysize*i] = outfftFiltered[i][0]/arraysize;
+
+				//setting and scaling the backtransformed image without filtering for clarity
+				inverted[j + arraysize*i] = in[i][0] / arraysize;
+				if (inverted[j + arraysize*i] > maxO) { maxO = inverted[j + arraysize*i]; }
+
+			}
+		}
+
+		cout << "maxF = " << (float) maxF << endl;
+		cout << "maxO = " << (float)maxO << endl;
+
+		NRRD::ImageView<float> fourier(arraysize, arraysize,0, transformed);
+		NRRD::ImageView<float> original(arraysize, arraysize, 0, inverted);
+		NRRD::ImageView<float> filteredFImage(arraysize, arraysize, 0, filteredF);
+		NRRD::ImageView<float> filteredOImage(arraysize, arraysize, 0, filteredO);
+
+		//rif0->data() = filteredOImage;
+		rif0->replaceRadonIntermediateData(filteredOImage);
+
+
+		/*
+		for (int j = 0; j < rif0->getRadonBinNumber(1); j++) {
+			for (int i = 0; i < rif0->getRadonBinNumber(0); i++) {
+				//if (cols0[j][i] != rif0->data().pixel(i, j)) {
+					//cout << "Value at" << i << " " << j << endl;
+				}					
+			}
+		}
+		//fft.fwd(,);
+		*/
 		// Slow CPU evaluation for just two views
 		// (usually, you just call ecc.evaluate(...) which uses the GPU to compute metric for all projections)
 		EpipolarConsistency::MetricRadonIntermediate ecc(Ps,rifs);
@@ -85,8 +189,10 @@ void gui(const GetSetInternal::Node& node)
 		double inconsistency=ecc.evaluateForImagePair(0,1, &redundant_samples0, &redundant_samples1,&kappas, &rif_samples0, &rif_samples1);
 		
 		// DEBUG ONLY
-		UtilsQt::Figure("A",rif0->data(),0,0,true);
-		UtilsQt::Figure("B",rif1->data(),0,0,true);
+		//NRRD::ImageView<float> oneDim(, );
+		//UtilsQt::Figure("check", oneDim, 0, 0, true);
+		//UtilsQt::Figure("A",rif0->data(),0,0,true);
+		//UtilsQt::Figure("B",rif1->data(),0,0,true);
 
 		g_app.progressUpdate(6);
 
@@ -107,9 +213,14 @@ void gui(const GetSetInternal::Node& node)
 
 		// Show Radon intermediate functions.
 		rif0->readback();
-		Figure fig0("Radon Intermediate Function 0", rif0->data(),0,0,true);
-		rif1->readback();
-		Figure fig1("Radon Intermediate Function 1", rif1->data(),0,0,true);
+		Figure fig0("Radon Intermediate Function 0", rif0->data(),true);
+		//rif1->readback();
+		//Figure fig1("Radon Intermediate Function 1", rif1->data(),true);
+		Figure fig2("Magnitude columnwise fourier transformed", fourier);
+		Figure fig3("Backtransformed image", original);
+		Figure fig4("Ramp filtered FFT", filteredFImage);
+		Figure fig5("Backtransformed ramp-filtered image ", filteredOImage);
+
 
 #ifndef DEBUG
 		// Show sample locations (slow)
@@ -119,12 +230,14 @@ void gui(const GetSetInternal::Node& node)
 		double n_t2    =0.5*rif0->data().size(1);
 		double step_alpha=rif1->getRadonBinSize(0);
 		double step_t=rif1->getRadonBinSize(1);
+		/*
 		for (int i = 0; i < (int)rif_samples0.size(); i+=8) {
 			fig0.drawPoint(rif_samples0[i].first / step_alpha + n_alpha2, rif_samples0[i].second / step_t + n_t2, black);
 			//for (int i=0; i<(int)rif_samples1.size(); i++)
 			//cout << rif_samples0[i].second / step_t + n_t2 << endl;
 			fig1.drawPoint(rif_samples1[i].first / step_alpha + n_alpha2, rif_samples1[i].second / step_t + n_t2, red);
 		}
+		*/
 #endif
 
 		g_app.progressEnd();
