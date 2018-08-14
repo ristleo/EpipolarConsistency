@@ -16,10 +16,10 @@ namespace EpipolarConsistency
 	class RadonIntermediate {
 	public:
 		/// Ctor computes radon derivative right away.
-		RadonIntermediate(const NRRD::ImageView<float>& projectionData, int size_alpha, int size_t, bool computeDerivative=true);
+		RadonIntermediate(const NRRD::ImageView<float>& projectionData, int size_alpha, int size_t, int filterType=1);
 
 		/// Ctor computes radon derivative right away.
-		RadonIntermediate(const UtilsCuda::BindlessTexture2D<float>& projectionData, int size_alpha, int size_t, bool computeDerivative=true);
+		RadonIntermediate(const UtilsCuda::BindlessTexture2D<float>& projectionData, int size_alpha, int size_t, int filterType=1);
 
 		/// Ctor loads a previously saved dtr.
 		RadonIntermediate(const std::string path);

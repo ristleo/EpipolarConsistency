@@ -30,13 +30,13 @@ void gui(const GetSetInternal::Node& node)
 	using namespace EpipolarConsistency;
 
 	// When the button has been clicked
-	if (node.name=="Update")
+	if (node.name == "Update")
 	{
-		g_app.progressStart("Epipolar Consistency","Evaluating via Radon intermediate functions...",7);
+		g_app.progressStart("Epipolar Consistency", "Evaluating via Radon intermediate functions...", 7);
 
 		// Load image files
-		std::string path0=GetSet<>("Epipolar Consistency/Images/Image 0");
-		std::string path1=GetSet<>("Epipolar Consistency/Images/Image 1");
+		std::string path0 = GetSet<>("Epipolar Consistency/Images/Image 0");
+		std::string path1 = GetSet<>("Epipolar Consistency/Images/Image 1");
 		NRRD::Image<float> image0(path0);
 		g_app.progressUpdate(1);
 		NRRD::Image<float> image1(path1);
@@ -44,20 +44,22 @@ void gui(const GetSetInternal::Node& node)
 
 		// Get pixel spacing and projection matrices
 		using Geometry::ProjectionMatrix;
-		double spx=GetSet<double>("Epipolar Consistency/Images/Pixel Spacing");
-		ProjectionMatrix P0=stringTo<ProjectionMatrix>(image0.meta_info["Projection Matrix"]);
-		ProjectionMatrix P1=stringTo<ProjectionMatrix>(image1.meta_info["Projection Matrix"]);
-	
+		double spx = GetSet<double>("Epipolar Consistency/Images/Pixel Spacing");
+		ProjectionMatrix P0 = stringTo<ProjectionMatrix>(image0.meta_info["Projection Matrix"]);
+		ProjectionMatrix P1 = stringTo<ProjectionMatrix>(image1.meta_info["Projection Matrix"]);
+
+		RadonIntermediateFunction::Filter filter = (RadonIntermediateFunction::Filter)(GetSet<int>("Epipolar Consistency/Radon Intermediate/Distance Filter").getValue());
+
 		// Compute both Radon intermediate functions
 		EpipolarConsistency::RadonIntermediateFunction compute_dtr;
 		using EpipolarConsistency::RadonIntermediate;
 		compute_dtr.gui_retreive_section("Epipolar Consistency/Radon Intermediate");
 		g_app.progressUpdate(3);
-		RadonIntermediate *rif0=compute_dtr.compute(image0,&P0,&spx);
+		RadonIntermediate *rif0 = compute_dtr.compute(image0, &P0, &spx);
 		g_app.progressUpdate(4);
-		RadonIntermediate *rif1=compute_dtr.compute(image1,&P1,&spx);
+		RadonIntermediate *rif1 = compute_dtr.compute(image1, &P1, &spx);
 		g_app.progressUpdate(5);
-		
+
 		// Evaluate ECC 
 		// (this way of evaluating ECC is usually intended for many more than 2 projections, hence the std::vectors)
 		std::vector<ProjectionMatrix> Ps;
@@ -66,128 +68,154 @@ void gui(const GetSetInternal::Node& node)
 		std::vector<RadonIntermediate*> rifs;
 		rifs.push_back(rif0);
 		rifs.push_back(rif1);
+
+		rif0->readback();
+		Figure fig0("Radon Intermediate Function 0", rif0->data(), true);
+		rif1->readback();
+		Figure fig1("Radon Intermediate Function 1", rif1->data(), true);
+	
 		// Output data
 		std::vector<float> redundant_samples0, redundant_samples1;
 		std::vector<float> kappas;
 		std::vector<std::pair<float,float> > rif_samples0, rif_samples1;
 		
-		// TODO hier die eigene Funktion mit fourierTransformation und ramp filter implementieren
-		//fftwf_execute_dft()
+		// hier die eigene Funktion mit fourierTransformation und ramp filter implementieren
 		using namespace std;
 		using namespace EpipolarConsistency;
-		std::vector<float*> cols0;
+
+		// hier noch allgemeiner für nicht quadratisch
 		int arraysize =  rif0->getRadonBinNumber(0);
-		rif0->readback();
 
+		std::vector<NRRD::ImageView<float>> fouriers;
+		std::vector<NRRD::ImageView<float>> originals;
+		std::vector<NRRD::ImageView<float>> filteredFImages;
+		std::vector<NRRD::ImageView<float>> filteredOImages;
 
+		vector<float> sinc(arraysize);
+		vector<float> cosine(arraysize);
+		vector<float> ramp(arraysize);
+		vector<int> n(arraysize);
 
+		NRRD::Image<float> transformed(arraysize, arraysize);
+		NRRD::Image<float> inverted(arraysize, arraysize);
+		NRRD::Image<float> filteredF(arraysize, arraysize);
+		NRRD::Image<float> filteredO(arraysize, arraysize);
 
-		//initialize size of pointers
+		for (int k = 0; k < rifs.size(); k++) {
 
-		float* transformed = (float*) malloc(sizeof(float)*arraysize*arraysize);
-		float* inverted = (float*)malloc(sizeof(float)*arraysize*arraysize);
-		float* filteredF = (float*)malloc(sizeof(float)*arraysize*arraysize);
-		float* filteredO = (float*)malloc(sizeof(float)*arraysize*arraysize);
+			rifs[k]->readback();
 
+			for (int j = 0; j < rifs[k]->getRadonBinNumber(1); j++) {
 
-		float maxF = 0;
-		float maxO = 0;
+				fftw_plan p, pBack, pBackFiltered;
+				vector<fftw_complex> in(arraysize);
+				vector<fftw_complex> out(arraysize);
+				vector<fftw_complex >infftFiltered(arraysize);
+				vector<fftw_complex> outfftFiltered(arraysize);
 
+				p = fftw_plan_dft_1d(arraysize, in.data(), out.data(), FFTW_FORWARD, FFTW_ESTIMATE); //fourier transform
+				pBack = fftw_plan_dft_1d(arraysize, out.data(), in.data(), FFTW_BACKWARD, FFTW_ESTIMATE); // backtransform to original image
+				pBackFiltered = fftw_plan_dft_1d(arraysize, infftFiltered.data(), outfftFiltered.data(), FFTW_BACKWARD, FFTW_ESTIMATE); //backtransform of filtered image
 
-		for (int j = 0; j < rif0->getRadonBinNumber(1); j++) {
-			//float* cur_col = new float[arraysize]();
-			fftw_complex *in, *out, *infftFiltered, *outfftFiltered;
-			fftw_plan p, pBack, pBackFiltered;
+				for (int i = 0; i < arraysize; i++) {
 
-			in = (fftw_complex*)fftw_malloc(sizeof(fftw_complex)*arraysize);
-			out = (fftw_complex*)fftw_malloc(sizeof(fftw_complex)*arraysize);
-			infftFiltered = (fftw_complex*)fftw_malloc(sizeof(fftw_complex)*arraysize);
-			outfftFiltered = (fftw_complex*)fftw_malloc(sizeof(fftw_complex)*arraysize);
+					
+					in[i][0] = rifs[k]->data().pixel(j, i); //real
+					in[i][1] = 0.0; //complex
 
+					//init sinc for shepp-logan
+					if (k == 0 && j ==0) {
+						
+						float x = (abs((i - arraysize / 2.0)/(arraysize/2.0))*Pi / 2.0)-Pi/2.0;
 
-			p = fftw_plan_dft_1d(arraysize, in, out, FFTW_FORWARD, FFTW_ESTIMATE); //fourier transform
-			pBack = fftw_plan_dft_1d(arraysize, out, in, FFTW_BACKWARD, FFTW_ESTIMATE); // backtransform to original image
-			pBackFiltered = fftw_plan_dft_1d(arraysize, infftFiltered, outfftFiltered, FFTW_BACKWARD, FFTW_ESTIMATE); //backtransform of filtered image
+						n[i] = i-arraysize/2.0;
+						ramp[i] = (arraysize/2.0 -  abs(i - arraysize / 2.0))/(arraysize/2.0);
+						cosine[i] = cos(x)*ramp[i];
+						sinc[i] = ((x != 0)? sin(x) / (x) : 1);
+						sinc[i] *= ramp[i];
+					}
+				}
+				//execute  fourier
+				fftw_execute(p);
 
+				for (int i = 0; i < arraysize; i++) {
 
-			for (int i = 0; i < arraysize; i++) {
-			
-				in[i][0] = rif0->data().pixel(j, i); //real
-				in[i][1] = 0.0; //complex
+					//TODO
+					//applying ramp filter with origin in arraysize/2 and an maximum amplitude of 1				
+					//setting filtered values to input for inverse fourier transform
+					
+					switch (filter) {
 
+					case RadonIntermediateFunction::Filter::Ramp:
+						//ramp
+						infftFiltered[i][0] = out[i][0] * ramp[i];
+						infftFiltered[i][1] = out[i][1] * ramp[i];
+						break;
 
+					case RadonIntermediateFunction::Filter::SheppLogan:
+						//shepp-logan
+						infftFiltered[i][0] = out[i][0] * sinc[i];
+						infftFiltered[i][1] = out[i][1] * sinc[i];
+						break;
+					case RadonIntermediateFunction::Filter::Cosine:
+						//cosine
+						infftFiltered[i][0] = out[i][0] * cosine[i];
+						infftFiltered[i][1] = out[i][1] * cosine[i];
+						break;
 
-				//cout <<"in "<< in[i][0] << endl;
-				//cout << "data " << rif0->data().pixel(i, j) << endl;
+					default:
+						//no filtering
+						infftFiltered[i][0] = out[i][0];
+						infftFiltered[i][1] = out[i][1];
+					}
 
-				//cur_col[i] = rif0->data().pixel(i, j);
-				//ges[i+arraysize*j] = rif0->data().pixel( j, i);
-			}
-			//cols0.push_back(cur_col);
-			fftw_execute(p);
-			
-			for (int i = 0; i < arraysize; i++) {
+					//simply setting an logarithmic scale for visualization
+					transformed.pixel(j,i) = (float)log(sqrt(out[i][0] * out[i][0] + out[i][1] * out[i][1]) + 1.0);
+					filteredF.pixel(j,i) = (float)log(sqrt(infftFiltered[i][0] * infftFiltered[i][0] + infftFiltered[i][1] * infftFiltered[i][1]) + 1.0);
+				}
+				fftw_execute(pBack);
+				fftw_execute(pBackFiltered);
 
-				//simply setting an logarithmic scale for output
-				transformed[j + arraysize*i] = (float) log(sqrt(out[i][0]*out[i][0]+ out[i][1] * out[i][1])+1);
-				//applying ramp filter with origin in arraysize/2 and an maximum amplitude of 1
-				filteredF[j + arraysize*i] = transformed[j + arraysize*i] * abs(arraysize / 2 - i)/(arraysize/2);
+				for (int i = 0; i < arraysize; i++) {
+
+					//setting magnitude part to filtered image
+					float temp1 = outfftFiltered[i][0] / arraysize;
+					float temp2 = outfftFiltered[i][1] / arraysize;
+
+					filteredO.pixel(j,i) = sqrt(temp1*temp1 + temp2*temp2);
+
+					//setting and scaling the backtransformed image without filtering for clarity
+					inverted.pixel(j,i) = sqrt(in[i][0]* in[i][0] + in[i][1] * in[i][1] )/ arraysize;
+					//inverted.pixel(j, i) = in[i][0]/arraysize;
+
+				}
+				fftw_destroy_plan(p);
+				fftw_destroy_plan(pBack);
+				fftw_destroy_plan(pBackFiltered);
 				
-				//setting out for inverse transformation to filtered
-				infftFiltered[i][0] = filteredF[j + arraysize*i];
-				infftFiltered[i][1] = out[i][1];
-
-
-				if (transformed[j + arraysize*i] > maxF) { maxF = transformed[j + arraysize*i]; }
-
-
-				//cout << out[i][0] << endl;
 			}
-			fftw_execute(pBack);
-			fftw_execute(pBackFiltered);
-			
-			//progress
-			//cout <<"\t\t"<< (float) j / arraysize << endl;
 
-			for (int i = 0; i < arraysize; i++) {
+			fouriers.push_back(transformed);
+			originals.push_back(inverted);
+			filteredFImages.push_back(filteredF);
+			filteredOImages.push_back(filteredO);
 
-				filteredO[j + arraysize*i] = outfftFiltered[i][0]/arraysize;
+			std::map<std::string, std::string> dict;
+			rifs[k]->writePropertiesToMeta(dict);
+			//sending computed data to rif[k] at gpu level 
+			rifs[k]->replaceRadonIntermediateData(filteredOImages[k]);
+			rifs[k]->readPropertiesFromMeta(dict);//wie geht das eleganter?
 
-				//setting and scaling the backtransformed image without filtering for clarity
-				inverted[j + arraysize*i] = in[i][0] / arraysize;
-				if (inverted[j + arraysize*i] > maxO) { maxO = inverted[j + arraysize*i]; }
-
-			}
 		}
 
-		cout << "maxF = " << (float) maxF << endl;
-		cout << "maxO = " << (float)maxO << endl;
-
-		NRRD::ImageView<float> fourier(arraysize, arraysize,0, transformed);
-		NRRD::ImageView<float> original(arraysize, arraysize, 0, inverted);
-		NRRD::ImageView<float> filteredFImage(arraysize, arraysize, 0, filteredF);
-		NRRD::ImageView<float> filteredOImage(arraysize, arraysize, 0, filteredO);
-
-		//rif0->data() = filteredOImage;
-		rif0->replaceRadonIntermediateData(filteredOImage);
-
-
-		/*
-		for (int j = 0; j < rif0->getRadonBinNumber(1); j++) {
-			for (int i = 0; i < rif0->getRadonBinNumber(0); i++) {
-				//if (cols0[j][i] != rif0->data().pixel(i, j)) {
-					//cout << "Value at" << i << " " << j << endl;
-				}					
-			}
-		}
-		//fft.fwd(,);
-		*/
 		// Slow CPU evaluation for just two views
 		// (usually, you just call ecc.evaluate(...) which uses the GPU to compute metric for all projections)
 		EpipolarConsistency::MetricRadonIntermediate ecc(Ps,rifs);
 		ecc.setdKappa(GetSet<double>    ("Epipolar Consistency/Sampling/Angle Step (deg)")/180*Geometry::Pi);
 		double inconsistency=ecc.evaluateForImagePair(0,1, &redundant_samples0, &redundant_samples1,&kappas, &rif_samples0, &rif_samples1);
+		cout << "inconsistency: " << inconsistency << endl;
 		
+
 		// DEBUG ONLY
 		//NRRD::ImageView<float> oneDim(, );
 		//UtilsQt::Figure("check", oneDim, 0, 0, true);
@@ -199,7 +227,9 @@ void gui(const GetSetInternal::Node& node)
 		// Visualize redundant signals
 		QColor red(255,0,0);
 		QColor black(0,0,0);
+		QColor blue(0, 0, 255);
 		Plot plot("ECC using Radon intermediate functions");
+		plot.closeAll();
 		plot.graph()
 			.setData((int)kappas.size(),kappas.data(),redundant_samples0.data())
 			.setName("Redundant Samples 0")
@@ -211,18 +241,21 @@ void gui(const GetSetInternal::Node& node)
 		plot.setAxisAngularX();
 		plot.setAxisLabels("Epipolar Plane Angle","Radon Intermediate Values [a.u.]");
 
-		// Show Radon intermediate functions.
-		rif0->readback();
-		Figure fig0("Radon Intermediate Function 0", rif0->data(),true);
-		//rif1->readback();
-		//Figure fig1("Radon Intermediate Function 1", rif1->data(),true);
-		Figure fig2("Magnitude columnwise fourier transformed", fourier);
-		Figure fig3("Backtransformed image", original);
-		Figure fig4("Ramp filtered FFT", filteredFImage);
-		Figure fig5("Backtransformed ramp-filtered image ", filteredOImage);
+		Plot filterPlot("used filters in frequency domain");
+		filterPlot.graph().setData(arraysize, n.data(), sinc.data()).setName("sinc").setColor("red");
+		filterPlot.graph().setData(arraysize, n.data(), cosine.data()).setName("cosine").setColor("black");
+		filterPlot.graph().setData(arraysize, n.data(), ramp.data()).setName("ramp").setColor("blue");
+		filterPlot.showLegend();
 
+		// Show Radon intermediate functions.
+
+		Figure fig2("Magnitude columnwise fourier transformed", fouriers[0]);
+		Figure fig3("Backtransformed image without filtering", originals[0]);
+		Figure fig4("Ramp filtered FFT", filteredFImages[0]);
+		Figure fig5("Backtransformed ramp-filtered image ", filteredOImages[0]);
 
 #ifndef DEBUG
+		
 		// Show sample locations (slow)
 		using namespace std;
 		bool check = rif0->isDerivative();
@@ -230,14 +263,14 @@ void gui(const GetSetInternal::Node& node)
 		double n_t2    =0.5*rif0->data().size(1);
 		double step_alpha=rif1->getRadonBinSize(0);
 		double step_t=rif1->getRadonBinSize(1);
-		/*
+		
 		for (int i = 0; i < (int)rif_samples0.size(); i+=8) {
-			fig0.drawPoint(rif_samples0[i].first / step_alpha + n_alpha2, rif_samples0[i].second / step_t + n_t2, black);
+			//fig0.drawPoint(rif_samples0[i].first / step_alpha + n_alpha2, rif_samples0[i].second / step_t + n_t2, black);
 			//for (int i=0; i<(int)rif_samples1.size(); i++)
 			//cout << rif_samples0[i].second / step_t + n_t2 << endl;
-			fig1.drawPoint(rif_samples1[i].first / step_alpha + n_alpha2, rif_samples1[i].second / step_t + n_t2, red);
+		//	fig1.drawPoint(rif_samples1[i].first / step_alpha + n_alpha2, rif_samples1[i].second / step_t + n_t2, red);
 		}
-		*/
+		
 #endif
 
 		g_app.progressEnd();

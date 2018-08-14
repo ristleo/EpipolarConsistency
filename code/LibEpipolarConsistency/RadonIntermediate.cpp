@@ -12,7 +12,7 @@ extern void computeDerivLineIntegrals(cudaTextureObject_t in, int n_x, int n_y, 
 namespace EpipolarConsistency
 {
 
-	RadonIntermediate::RadonIntermediate(const NRRD::ImageView<float>& projectionData, int size_alpha, int size_t, bool computeDerivative)
+	RadonIntermediate::RadonIntermediate(const NRRD::ImageView<float>& projectionData, int size_alpha, int size_t, int filterType)
 		: m_bin_size_angle(0)
 		, m_bin_size_distance(0)
 		, m_is_derivative(0)
@@ -25,10 +25,10 @@ namespace EpipolarConsistency
 		m_raw_gpu=new UtilsCuda::MemoryBlock<float>(projectionData.size(0)*projectionData.size(1), projectionData);
 		// Temporary texture
 		UtilsCuda::BindlessTexture2D<float> tmp_tex(projectionData.size(0),projectionData.size(1),*m_raw_gpu,true);
-		compute(tmp_tex,size_alpha,size_t,computeDerivative);
+		compute(tmp_tex,size_alpha,size_t, filterType !=0);
 	}
 
-	RadonIntermediate::RadonIntermediate(const UtilsCuda::BindlessTexture2D<float>& projectionData, int size_alpha, int size_t, bool computeDerivative)
+	RadonIntermediate::RadonIntermediate(const UtilsCuda::BindlessTexture2D<float>& projectionData, int size_alpha, int size_t, int filterType)
 		: m_bin_size_angle(0)
 		, m_bin_size_distance(0)
 		, m_is_derivative(0)
@@ -39,7 +39,9 @@ namespace EpipolarConsistency
 		, m_tex(0x0)
 	{
 		m_raw_gpu=new UtilsCuda::MemoryBlock<float>();
-		compute(projectionData,size_alpha,size_t,computeDerivative);
+		compute(projectionData,size_alpha,size_t,filterType!=0);
+		// 3do
+		// filterRadonData()
 	}
 
 	RadonIntermediate::RadonIntermediate(const std::string path)
