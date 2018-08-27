@@ -3,7 +3,6 @@
 
 // Fourier Transform
 #include<fftw3.h>
-#include<unsupported\Eigen\FFT>
 
 // Simple CUDA Wrappers
 #include <LibUtilsCuda/CudaBindlessTexture.h>
@@ -48,7 +47,7 @@ void gui(const GetSetInternal::Node& node)
 		ProjectionMatrix P0 = stringTo<ProjectionMatrix>(image0.meta_info["Projection Matrix"]);
 		ProjectionMatrix P1 = stringTo<ProjectionMatrix>(image1.meta_info["Projection Matrix"]);
 
-		RadonIntermediateFunction::Filter filter = (RadonIntermediateFunction::Filter)(GetSet<int>("Epipolar Consistency/Radon Intermediate/Distance Filter").getValue());
+		Filter filter = (Filter)(GetSet<int>("Epipolar Consistency/Radon Intermediate/Distance Filter").getValue());
 
 		// Compute both Radon intermediate functions
 		EpipolarConsistency::RadonIntermediateFunction compute_dtr;
@@ -82,7 +81,7 @@ void gui(const GetSetInternal::Node& node)
 		// hier die eigene Funktion mit fourierTransformation und ramp filter implementieren
 		using namespace std;
 		using namespace EpipolarConsistency;
-
+		/*
 		// hier noch allgemeiner für nicht quadratisch
 		int arraysize =  rif0->getRadonBinNumber(0);
 
@@ -130,6 +129,9 @@ void gui(const GetSetInternal::Node& node)
 
 						n[i] = i-arraysize/2.0;
 						ramp[i] = (arraysize/2.0 -  abs(i - arraysize / 2.0))/(arraysize/2.0);
+						if (i > arraysize / 2.0) {
+							//ramp[i] = 0;
+						}
 						cosine[i] = cos(x)*ramp[i];
 						sinc[i] = ((x != 0)? sin(x) / (x) : 1);
 						sinc[i] *= ramp[i];
@@ -139,10 +141,6 @@ void gui(const GetSetInternal::Node& node)
 				fftw_execute(p);
 
 				for (int i = 0; i < arraysize; i++) {
-
-					//TODO
-					//applying ramp filter with origin in arraysize/2 and an maximum amplitude of 1				
-					//setting filtered values to input for inverse fourier transform
 					
 					switch (filter) {
 
@@ -185,8 +183,8 @@ void gui(const GetSetInternal::Node& node)
 					filteredO.pixel(j,i) = sqrt(temp1*temp1 + temp2*temp2);
 
 					//setting and scaling the backtransformed image without filtering for clarity
-					inverted.pixel(j,i) = sqrt(in[i][0]* in[i][0] + in[i][1] * in[i][1] )/ arraysize;
-					//inverted.pixel(j, i) = in[i][0]/arraysize;
+					//inverted.pixel(j,i) = sqrt(in[i][0]* in[i][0] + in[i][1] * in[i][1] )/ arraysize;
+					inverted.pixel(j, i) = in[i][0]/arraysize;
 
 				}
 				fftw_destroy_plan(p);
@@ -205,22 +203,14 @@ void gui(const GetSetInternal::Node& node)
 			//sending computed data to rif[k] at gpu level 
 			rifs[k]->replaceRadonIntermediateData(filteredOImages[k]);
 			rifs[k]->readPropertiesFromMeta(dict);//wie geht das eleganter?
-
 		}
-
+		*/
 		// Slow CPU evaluation for just two views
 		// (usually, you just call ecc.evaluate(...) which uses the GPU to compute metric for all projections)
 		EpipolarConsistency::MetricRadonIntermediate ecc(Ps,rifs);
 		ecc.setdKappa(GetSet<double>    ("Epipolar Consistency/Sampling/Angle Step (deg)")/180*Geometry::Pi);
 		double inconsistency=ecc.evaluateForImagePair(0,1, &redundant_samples0, &redundant_samples1,&kappas, &rif_samples0, &rif_samples1);
 		cout << "inconsistency: " << inconsistency << endl;
-		
-
-		// DEBUG ONLY
-		//NRRD::ImageView<float> oneDim(, );
-		//UtilsQt::Figure("check", oneDim, 0, 0, true);
-		//UtilsQt::Figure("A",rif0->data(),0,0,true);
-		//UtilsQt::Figure("B",rif1->data(),0,0,true);
 
 		g_app.progressUpdate(6);
 
@@ -240,7 +230,7 @@ void gui(const GetSetInternal::Node& node)
 			.setColor(red);
 		plot.setAxisAngularX();
 		plot.setAxisLabels("Epipolar Plane Angle","Radon Intermediate Values [a.u.]");
-
+		/*
 		Plot filterPlot("used filters in frequency domain");
 		filterPlot.graph().setData(arraysize, n.data(), sinc.data()).setName("sinc").setColor("red");
 		filterPlot.graph().setData(arraysize, n.data(), cosine.data()).setName("cosine").setColor("black");
@@ -253,9 +243,10 @@ void gui(const GetSetInternal::Node& node)
 		Figure fig3("Backtransformed image without filtering", originals[0]);
 		Figure fig4("Ramp filtered FFT", filteredFImages[0]);
 		Figure fig5("Backtransformed ramp-filtered image ", filteredOImages[0]);
+		*/
 
 #ifndef DEBUG
-		
+		/*
 		// Show sample locations (slow)
 		using namespace std;
 		bool check = rif0->isDerivative();
@@ -265,12 +256,12 @@ void gui(const GetSetInternal::Node& node)
 		double step_t=rif1->getRadonBinSize(1);
 		
 		for (int i = 0; i < (int)rif_samples0.size(); i+=8) {
-			//fig0.drawPoint(rif_samples0[i].first / step_alpha + n_alpha2, rif_samples0[i].second / step_t + n_t2, black);
-			//for (int i=0; i<(int)rif_samples1.size(); i++)
-			//cout << rif_samples0[i].second / step_t + n_t2 << endl;
-		//	fig1.drawPoint(rif_samples1[i].first / step_alpha + n_alpha2, rif_samples1[i].second / step_t + n_t2, red);
+			fig0.drawPoint(rif_samples0[i].first / step_alpha + n_alpha2, rif_samples0[i].second / step_t + n_t2, black);
+			for (int i=0; i<(int)rif_samples1.size(); i++)
+			cout << rif_samples0[i].second / step_t + n_t2 << endl;
+			fig1.drawPoint(rif_samples1[i].first / step_alpha + n_alpha2, rif_samples1[i].second / step_t + n_t2, red);
 		}
-		
+		*/
 #endif
 
 		g_app.progressEnd();

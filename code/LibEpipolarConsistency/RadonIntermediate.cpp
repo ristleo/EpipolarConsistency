@@ -4,6 +4,10 @@
 #include <LibUtilsCuda/CudaMemory.h>
 #include <LibUtilsCuda/CudaBindlessTexture.h>
 
+//added
+
+#include <fftw3.h>
+
 const double Pi=3.1415926535897931;
 
 /// CUDA implementation of radon transformation based on explicit formulation of the line equation and evaluation (more flexible)
@@ -26,6 +30,8 @@ namespace EpipolarConsistency
 		// Temporary texture
 		UtilsCuda::BindlessTexture2D<float> tmp_tex(projectionData.size(0),projectionData.size(1),*m_raw_gpu,true);
 		compute(tmp_tex,size_alpha,size_t, filterType !=0);
+
+		filterRadonData(filterType);
 	}
 
 	RadonIntermediate::RadonIntermediate(const UtilsCuda::BindlessTexture2D<float>& projectionData, int size_alpha, int size_t, int filterType)
@@ -40,8 +46,9 @@ namespace EpipolarConsistency
 	{
 		m_raw_gpu=new UtilsCuda::MemoryBlock<float>();
 		compute(projectionData,size_alpha,size_t,filterType!=0);
-		// 3do
-		// filterRadonData()
+		// 2do
+		filterRadonData(filterType);
+
 	}
 
 	RadonIntermediate::RadonIntermediate(const std::string path)
@@ -196,11 +203,89 @@ namespace EpipolarConsistency
 		double diagonal=std::sqrt((double)n_y*n_y+n_x*n_x);
 		m_bin_size_distance=diagonal/n_t;
 		m_bin_size_angle=Pi/n_alpha;
-		// A negative derivativeDistance will instead compute a normal Radon trasnform
+		// A negative derivativeDistance will instead compute a normal Radon transform
 		m_is_derivative=computeDerivative;
 		m_raw_gpu->allocate(n_t*n_alpha);
 		// Run kernel
 		computeDerivLineIntegrals(projectionData,n_x,n_y,n_alpha,n_t, computeDerivative,*m_raw_gpu);
 	}
 
+	void RadonIntermediate::filterRadonData(int filterType) {
+
+		std::vector<float> sinc(n_t), cosine(n_t), ramp(n_t), n(n_t);
+		NRRD::Image<float> transformed(n_alpha, n_t), filteredF(n_alpha, n_t), filteredO(n_alpha, n_t);
+
+		//init filter
+		for (int i = 0; i < n_t; i++) {
+			float x = (abs((i - n_t / 2.0) / (n_t / 2.0))*Pi / 2.0) - Pi / 2.0;
+			n[i] = i - n_t / 2.0;
+			ramp[i] = (n_t / 2.0 - abs(i - n_t / 2.0)) / (n_t / 2.0);
+			cosine[i] = cos(x)*ramp[i];
+			sinc[i] = ((x != 0) ? sin(x) / (x) : 1);
+			sinc[i] *= ramp[i];
+		}
+
+		for (int j = 0; j < n_alpha; j++) {
+
+			fftw_plan p, pBackFiltered;
+			std::vector<fftw_complex> in(n_t), out(n_t), infftFiltered(n_t), outfftFiltered(n_t);
+
+			p = fftw_plan_dft_1d(n_t, in.data(), out.data(), FFTW_FORWARD, FFTW_ESTIMATE); //fourier transform
+			pBackFiltered = fftw_plan_dft_1d(n_t, infftFiltered.data(), outfftFiltered.data(), FFTW_BACKWARD, FFTW_ESTIMATE); //backtransform of filtered image
+		
+			readback();
+
+			for (int i = 0; i < n_t; i++) {
+
+				in[i][0] = data().pixel(j, i); //real
+				in[i][1] = 0.0; //complex
+		}
+		//execute  fourier
+		fftw_execute(p);
+
+		for (int i = 0; i < n_t; i++) {
+
+			switch (filterType) {
+
+			case Filter::Ramp:
+				infftFiltered[i][0] = out[i][0] * ramp[i];
+				infftFiltered[i][1] = out[i][1] * ramp[i];
+				break;
+
+			case Filter::SheppLogan:
+				infftFiltered[i][0] = out[i][0] * sinc[i];
+				infftFiltered[i][1] = out[i][1] * sinc[i];
+				break;
+
+			case Filter::Cosine:
+				infftFiltered[i][0] = out[i][0] * cosine[i];
+				infftFiltered[i][1] = out[i][1] * cosine[i];
+				break;
+
+			default:
+				//no filtering
+				infftFiltered[i][0] = out[i][0];
+				infftFiltered[i][1] = out[i][1];
+			}
+		}
+		fftw_execute(pBackFiltered);
+
+		for (int i = 0; i < n_t; i++) {
+
+			//setting magnitude part to filtered image
+			float temp1 = outfftFiltered[i][0] / n_t;
+			float temp2 = outfftFiltered[i][1] / n_t;
+			filteredO.pixel(j, i) = sqrt(temp1*temp1 + temp2*temp2);
+			//filteredO.pixel(j, i) = temp1;
+		}
+		fftw_destroy_plan(p);
+		fftw_destroy_plan(pBackFiltered);
+
+		}
+		//sending computed data to gpu level 
+		std::map<std::string, std::string> dict;
+		writePropertiesToMeta(dict);
+		replaceRadonIntermediateData(filteredO);
+		readPropertiesFromMeta(dict);//wie geht das eleganter?
+	}
 } // namespace EpipolarConsistency

@@ -8,7 +8,7 @@
 #include <GetSet/GetSetObjects.h>
 #include <GetSet/ProgressInterface.hxx>
 
-#include <LibUtilsQt/Figure.hxx>
+//#include <LibUtilsQt/Figure.hxx>
 
 #include <NRRD/nrrd_image_stack.hxx>
 
@@ -26,15 +26,12 @@ namespace EpipolarConsistency
 	//
 
 	struct RadonIntermediateFunction : public GetSetGui::Configurable {
-		enum Filter {
-			Derivative=0, Ramp=1, SheppLogan=2, Cosine=3, None=4,
-		} filter=Derivative;				//< Filter Radon transform by derivative in distance direction.
+		
+		Filter filter=Derivative;				//< Filter Radon transform by derivative in distance direction.
 		struct NumberOfBins {
 			int angle=768;					//< Size of the Radon transform in angle-direction.
 			int distance=768;				//< Size of the Radon transform in distance-direction.
 		} number_of_bins;
-		double offset=0;
-
 
 		/// Declare default values.
 		void gui_declare_section (const GetSetGui::Section& section)
@@ -43,7 +40,6 @@ namespace EpipolarConsistency
 			GetSet<int>("Number Of Bins/Angle"    ,section,number_of_bins.angle                     ).setDescription("");
 			GetSet<int>("Number Of Bins/Distance" ,section,number_of_bins.distance                  ).setDescription("");
 			GetSetGui::Enum("Distance Filter", section, filter).setChoices("Derivative;Ramp;Shepp-Logan;Cosine;None").setDescription("");
-			GetSet<double>("Offset", section, offset);
 			section.subsection("Number Of Bins").setGrouped();
 		}
 		

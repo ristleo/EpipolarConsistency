@@ -12,6 +12,10 @@ namespace UtilsCuda {
 
 namespace EpipolarConsistency
 {
+	enum Filter {
+		Derivative = 0, Ramp = 1, SheppLogan = 2, Cosine = 3, None = 4,
+	};
+
 	/// Compute derivative in t-direction of Radon transform of x-ray projection data.
 	class RadonIntermediate {
 	public:
@@ -115,7 +119,10 @@ namespace EpipolarConsistency
 		/// Runs Cuda kernel for Radon transform computation.
 		void compute(const UtilsCuda::BindlessTexture2D<float>& projectionData, int size_alpha, int size_t, bool computeDerivative);
 
+		void filterRadonData(int filterType);
+
 	};
+
 } // namespace EpipolarConsistency
 
 #endif // __radon_derivative
