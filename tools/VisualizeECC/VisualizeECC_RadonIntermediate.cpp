@@ -81,6 +81,25 @@ void gui(const GetSetInternal::Node& node)
 		// hier die eigene Funktion mit fourierTransformation und ramp filter implementieren
 		using namespace std;
 		using namespace EpipolarConsistency;
+		int arraysize = GetSet<int>("Epipolar Consistency/Radon Intermediate/Number Of Bins/Angle");
+		vector<float> sinc(arraysize);
+		vector<float> cosine(arraysize);
+		vector<float> ramp(arraysize);
+		vector<int> n(arraysize);
+
+		for (int i = 0; i < arraysize; i++) {
+
+				float x = (abs((i - arraysize / 2.0) / (arraysize / 2.0))*Pi / 2.0) - Pi / 2.0;
+
+				n[i] = i - arraysize / 2.0;
+				ramp[i] = (arraysize / 2.0 - abs(i - arraysize / 2.0)) / (arraysize / 2.0);
+				if (i > arraysize / 2.0) {
+					//ramp[i] = 0;
+				}
+				cosine[i] = cos(x)*ramp[i];
+				sinc[i] = ((x != 0) ? sin(x) / (x) : 1);
+				sinc[i] *= ramp[i];
+		}
 		/*
 		// hier noch allgemeiner für nicht quadratisch
 		int arraysize =  rif0->getRadonBinNumber(0);
@@ -144,18 +163,18 @@ void gui(const GetSetInternal::Node& node)
 					
 					switch (filter) {
 
-					case RadonIntermediateFunction::Filter::Ramp:
+					case Filter::Ramp:
 						//ramp
 						infftFiltered[i][0] = out[i][0] * ramp[i];
 						infftFiltered[i][1] = out[i][1] * ramp[i];
 						break;
 
-					case RadonIntermediateFunction::Filter::SheppLogan:
+					case Filter::SheppLogan:
 						//shepp-logan
 						infftFiltered[i][0] = out[i][0] * sinc[i];
 						infftFiltered[i][1] = out[i][1] * sinc[i];
 						break;
-					case RadonIntermediateFunction::Filter::Cosine:
+					case Filter::Cosine:
 						//cosine
 						infftFiltered[i][0] = out[i][0] * cosine[i];
 						infftFiltered[i][1] = out[i][1] * cosine[i];
@@ -204,7 +223,7 @@ void gui(const GetSetInternal::Node& node)
 			rifs[k]->replaceRadonIntermediateData(filteredOImages[k]);
 			rifs[k]->readPropertiesFromMeta(dict);//wie geht das eleganter?
 		}
-		*/
+	*/
 		// Slow CPU evaluation for just two views
 		// (usually, you just call ecc.evaluate(...) which uses the GPU to compute metric for all projections)
 		EpipolarConsistency::MetricRadonIntermediate ecc(Ps,rifs);
@@ -230,7 +249,7 @@ void gui(const GetSetInternal::Node& node)
 			.setColor(red);
 		plot.setAxisAngularX();
 		plot.setAxisLabels("Epipolar Plane Angle","Radon Intermediate Values [a.u.]");
-		/*
+		
 		Plot filterPlot("used filters in frequency domain");
 		filterPlot.graph().setData(arraysize, n.data(), sinc.data()).setName("sinc").setColor("red");
 		filterPlot.graph().setData(arraysize, n.data(), cosine.data()).setName("cosine").setColor("black");
@@ -239,11 +258,11 @@ void gui(const GetSetInternal::Node& node)
 
 		// Show Radon intermediate functions.
 
-		Figure fig2("Magnitude columnwise fourier transformed", fouriers[0]);
-		Figure fig3("Backtransformed image without filtering", originals[0]);
-		Figure fig4("Ramp filtered FFT", filteredFImages[0]);
-		Figure fig5("Backtransformed ramp-filtered image ", filteredOImages[0]);
-		*/
+		//Figure fig2("Magnitude columnwise fourier transformed", fouriers[0]);
+		//Figure fig3("Backtransformed image without filtering", originals[0]);
+		//Figure fig4("Ramp filtered FFT", filteredFImages[0]);
+		//Figure fig5("Backtransformed ramp-filtered image ", filteredOImages[0]);
+		
 
 #ifndef DEBUG
 		/*

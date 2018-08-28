@@ -20,6 +20,11 @@ GetSetGui::Application g_app("VisualizeECC");
 // Transforming line coordinates
 #include <LibEpipolarConsistency/EpipolarConsistencyDirect.h>
 
+// Computing  Radon transform and evaluating Epipolar Consistency-
+#include <LibEpipolarConsistency/Gui/ComputeRadonIntermediate.hxx>
+#include <LibEpipolarConsistency/EpipolarConsistencyRadonIntermediate.h>
+#include <LibEpipolarConsistency/EpipolarConsistencyRadonIntermediateCPU.hxx>
+
 /// Function called when user clicks into projection images. Epipolar lines are drawn in 2 and 3 dimensions.
 void updateEpipolarLines(const std::string& figure_name, bool is_blue, std::vector<Eigen::Vector4d>& selections)
 {
@@ -187,15 +192,17 @@ void gui(const GetSetInternal::Node& node)
 		computeForImagePair(
 			P0, P1, I0_tex, I1_tex,
 			GetSet<double>("FBCC/Sampling/Angle Step (deg)") / 180 * Pi,
+			GetSet<int>("Radon Intermediate/Number Of Bins/Angle"),
+			GetSet<int>("Radon Intermediate/Number Of Bins/Distance"),
 			GetSet<double>("FBCC/Sampling/Object Radius"),
-			GetSet<int>("FBCC/Sampling/Mode") == 1,
+			GetSet<int>("FBCC/Sampling/Mode").getValue(), (Filter)GetSet<int>("Radon Intermediate/Distance Filter").getValue(),//änderung hier 
 			&v0s, &v1s, &kappas
 		);
 		int n_lines = (int)kappas.size();
 
 		// Plot
 		Plot plot("Epipolar Consistency", true);
-		plot.setAxisLabels("Epipolar Plane Angle", "Cosnsistency Metric [a.u.]")
+		plot.setAxisLabels("Epipolar Plane Angle", "Consistency Metric [a.u.]")
 			.setAxisAngularX()
 			.showLegend();
 		plot.graph().setData(n_lines, kappas.data(), v0s.data()).setName("Image 0").setColor(1, 0, 0);
@@ -224,9 +231,11 @@ int main(int argc, char ** argv)
 	GetSetGui::Section("FBCC/Images").setGrouped();
 	GetSet<double>("FBCC/Sampling/Object Radius") = 50;
 	GetSet<double>("FBCC/Sampling/Angle Step (deg)") = 0.01;
-	GetSetGui::Enum("FBCC/Sampling/Mode").setChoices("ECC;FBCC");
+	GetSetGui::Enum("FBCC/Sampling/Mode").setChoices("ECC;FBCC;RadonFiltering");
 	GetSetGui::Section("FBCC/Sampling").setGrouped();
 	GetSetGui::Button("FBCC/Update") = "Update Plots";
+
+	EpipolarConsistency::RadonIntermediateFunction().gui_declare_section("Radon Intermediate");
 
 	GetSetGui::Button("FBCC/Check Derivative") = "Check";
 

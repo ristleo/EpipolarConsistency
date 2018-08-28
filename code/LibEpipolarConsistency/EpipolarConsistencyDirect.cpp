@@ -7,6 +7,13 @@
 // Transforming line coordinates
 #include <LibEpipolarConsistency/RectifiedFBCC.h>
 
+#include <LibEpipolarConsistency/Gui/ComputeRadonIntermediate.hxx>
+#include <LibEpipolarConsistency/EpipolarConsistencyRadonIntermediate.h>
+#include <LibEpipolarConsistency/EpipolarConsistencyRadonIntermediateCPU.hxx>
+
+//only for testing
+
+
 /// Actual work done in CUDA
 extern void cuda_computeLineIntegrals(
 	short n_lines,                               // Number of lines
@@ -64,7 +71,7 @@ namespace EpipolarConsistency
 	double computeForImagePair(
 		const Geometry::ProjectionMatrix&          P0, const Geometry::ProjectionMatrix&          P1,
 		const UtilsCuda::BindlessTexture2D<float>& I0, const UtilsCuda::BindlessTexture2D<float>& I1,
-		double dkappa, double object_radius_mm, bool fbcc,
+		double dkappa, int n_alpha, int n_t, double object_radius_mm, int mode, Filter radonFilter,//LEO hier ändern für anderen Modus
 		std::vector<float> *redundant_samples0, std::vector<float> *redundant_samples1,
 		std::vector<float> *kappas)
 	{
@@ -118,13 +125,13 @@ namespace EpipolarConsistency
 		UtilsCuda::MemoryBlock<float> v1s_d(n_lines);
 
 		// Compute integrals in image 0 and 1
-		if (!fbcc)
+		if (mode == 0)
 		{
 			// ECC
 			cuda_computeLineIntegrals(n_lines, (float*)l01s_d  , 6, 0x0, 0, I0, I0.size[0], I0.size[1], v0s_d);
 			cuda_computeLineIntegrals(n_lines, (float*)l01s_d+3, 6, 0x0, 0, I1, I1.size[0], I1.size[1], v1s_d);
 		}
-		else
+		else if(mode == 1)//fbcc
 		{
 			// Virtual detector plane
 			auto d =pluecker_direction(B);
@@ -194,6 +201,27 @@ namespace EpipolarConsistency
 			cuda_computeLineIntegrals(n_lines, (float*)l01s_d  , 6, (float*)fbcc01_d        , n_fbcc*2, I0, I0.size[0], I0.size[1], v0s_d);
 			cuda_computeLineIntegrals(n_lines, (float*)l01s_d+3, 6, (float*)fbcc01_d+n_fbcc , n_fbcc*2, I1, I1.size[0], I1.size[1], v1s_d);
 		}
+		else{
+			//Radon filtering
+			
+			// Get pixel spacing and projection matrices
+			
+			// Compute both Radon intermediate functions
+			
+			using EpipolarConsistency::RadonIntermediate;
+			//compute_dtr.gui_retreive_section("Epipolar Consistency/Radon Intermediate");
+			RadonIntermediate rif0(I0, n_alpha, n_t, radonFilter);
+			RadonIntermediate rif1(I1, n_alpha, n_t, radonFilter);
+			
+			rif0.readback();
+			rif1.readback();
+			
+
+
+			//!!
+			//hier müssen noch die redundant_samples/v0 herausgefunden werden!
+			//!!
+		}
 		
 		// Read back
 		auto &v0s(*redundant_samples0), &v1s(*redundant_samples1);
@@ -254,11 +282,11 @@ namespace EpipolarConsistency
 
 	double MetricDirect::evaluateForImagePair(int i, int j,
 		std::vector<float> *redundant_samples0, std::vector<float> *redundant_samples1,
-		std::vector<float> *kappas)
+		std::vector<float> *kappas, int n_alpha, int n_t, int mode, Filter filter)//
 	{
 		return computeForImagePair(
 			Ps[i],Ps[j], *Is[i],*Is[j],
-			dkappa, getObjectRadius(), use_fbcc,
+			dkappa,n_alpha, n_t, getObjectRadius(), mode, filter,
 			redundant_samples0, redundant_samples1,
 			kappas
 			);

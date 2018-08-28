@@ -308,7 +308,7 @@ namespace EpipolarConsistency
 			if (radon_samples1    ) radon_samples1    ->push_back(std::make_pair(line1[0], line1[1]));
 
 			// Accumulate
-			ecc=(v0-v1)*(v0-v1)*dkappa;
+			ecc+=(v0-v1)*(v0-v1)*dkappa;
 		}
 		
 		return ecc;

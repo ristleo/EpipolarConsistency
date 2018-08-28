@@ -11,13 +11,17 @@
 // Projective Geometry
 #include <LibProjectiveGeometry/ProjectionMatrix.h>
 
+#include <LibEpipolarConsistency/Gui/ComputeRadonIntermediate.hxx>
+#include <LibEpipolarConsistency/EpipolarConsistencyRadonIntermediate.h>
+#include <LibEpipolarConsistency/EpipolarConsistencyRadonIntermediateCPU.hxx>
+
 namespace EpipolarConsistency
 {
 	/// The main algorithm behind epipolar consistency, when not using Radon intermediate functions.
 	double computeForImagePair(
 		const Geometry::ProjectionMatrix&          P0, const Geometry::ProjectionMatrix&          P1,
 		const UtilsCuda::BindlessTexture2D<float>& I0, const UtilsCuda::BindlessTexture2D<float>& I1,
-		double dkappa, double object_radius_mm, bool fbcc=false,
+		double dkappa,int n_alpha, int n_t, double object_radius_mm, int mode, Filter radonFilter,
 		std::vector<float> *redundant_samples0=0x0, std::vector<float> *redundant_samples1=0x0,
 		std::vector<float> *kappas=0x0);
 		
@@ -52,7 +56,7 @@ namespace EpipolarConsistency
 		/// Evaluate for just tow images i and j and optionally also return redundant values.
 		virtual double evaluateForImagePair(int i, int j,
 			std::vector<float> *redundant_samples0=0x0, std::vector<float> *redundant_samples1=0x0,
-			std::vector<float> *kappas=0x0);
+			std::vector<float> *kappas=0x0, int n_alpha = 0, int n_t = 0, int mode = 0, Filter filter = Ramp);
 
 		/// Change algorith to use retification instead of derivative.
 		MetricDirect& setFanBeamConsistency(bool fbcc=true);
