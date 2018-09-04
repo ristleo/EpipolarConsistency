@@ -11,6 +11,8 @@
 #include <LibEpipolarConsistency/EpipolarConsistencyRadonIntermediate.h>
 #include <LibEpipolarConsistency/EpipolarConsistencyRadonIntermediateCPU.hxx>
 
+#include <fftw3.h>
+
 //only for testing
 
 
@@ -24,6 +26,8 @@ extern void cuda_computeLineIntegrals(
 
 namespace EpipolarConsistency
 {
+
+	enum Modus { ECC, FBCC, RadonFiltering };
 
 	/// Utility function: Compute epipolar lines for all angles given in vector kappas.
 	std::vector<std::pair<Eigen::Vector3f,Eigen::Vector3f> > computeEpipolarLines(
@@ -131,7 +135,7 @@ namespace EpipolarConsistency
 			cuda_computeLineIntegrals(n_lines, (float*)l01s_d  , 6, 0x0, 0, I0, I0.size[0], I0.size[1], v0s_d);
 			cuda_computeLineIntegrals(n_lines, (float*)l01s_d+3, 6, 0x0, 0, I1, I1.size[0], I1.size[1], v1s_d);
 		}
-		else if(mode == 1)//fbcc
+		else //fbcc
 		{
 			// Virtual detector plane
 			auto d =pluecker_direction(B);
@@ -201,27 +205,6 @@ namespace EpipolarConsistency
 			cuda_computeLineIntegrals(n_lines, (float*)l01s_d  , 6, (float*)fbcc01_d        , n_fbcc*2, I0, I0.size[0], I0.size[1], v0s_d);
 			cuda_computeLineIntegrals(n_lines, (float*)l01s_d+3, 6, (float*)fbcc01_d+n_fbcc , n_fbcc*2, I1, I1.size[0], I1.size[1], v1s_d);
 		}
-		else{
-			//Radon filtering
-			
-			// Get pixel spacing and projection matrices
-			
-			// Compute both Radon intermediate functions
-			
-			using EpipolarConsistency::RadonIntermediate;
-			//compute_dtr.gui_retreive_section("Epipolar Consistency/Radon Intermediate");
-			RadonIntermediate rif0(I0, n_alpha, n_t, radonFilter);
-			RadonIntermediate rif1(I1, n_alpha, n_t, radonFilter);
-			
-			rif0.readback();
-			rif1.readback();
-			
-
-
-			//!!
-			//hier müssen noch die redundant_samples/v0 herausgefunden werden!
-			//!!
-		}
 		
 		// Read back
 		auto &v0s(*redundant_samples0), &v1s(*redundant_samples1);
@@ -229,6 +212,82 @@ namespace EpipolarConsistency
 		v0s_d.readback(v0s.data());
 		v1s.resize(n_lines*3);
 		v1s_d.readback(v1s.data());
+
+
+		//filter FBCC in kappa-direction
+
+		if (mode == 2) {
+
+			int range =kappas->size();
+
+			//possible windowing
+			for (int i = 0; i < range; i++) {
+
+				v0s[i] *= pow(sin(i / range / 10), 2);
+			}
+			// create plans and their corresponding in- and outputs for the fft of both fbcc-signals
+			fftw_plan p0, p1, pBackFiltered0, pBackFiltered1;
+			std::vector<fftw_complex> in0(range), out0(range), infftFiltered0(range), outfftFiltered0(range);
+			std::vector<fftw_complex> in1(range), out1(range), infftFiltered1(range), outfftFiltered1(range);
+
+			//initialize ramp-filter and complex fft-input
+			std::vector<float> ramp(range);
+			for (int i = 0; i < range; i++) {
+				ramp[i] = (range / 2.0 - abs(i - range / 2.0));
+
+				in0[i][0] = v0s[i];
+				in0[i][1] = 0.0;
+				in1[i][0] = v1s[i];
+				in1[i][1] = 0.0;
+			}
+
+			//plan transformation
+			//fbcc0
+			p0 = fftw_plan_dft_1d(range, in0.data(), out0.data(), FFTW_FORWARD, FFTW_ESTIMATE); //fourier transform
+			pBackFiltered0 = fftw_plan_dft_1d(range, infftFiltered0.data(), outfftFiltered0.data(), FFTW_BACKWARD, FFTW_ESTIMATE); //backtransform of filtered image
+			//fbcc1
+			p1 = fftw_plan_dft_1d(range, in1.data(), out1.data(), FFTW_FORWARD, FFTW_ESTIMATE); //fourier transform
+			pBackFiltered1 = fftw_plan_dft_1d(range, infftFiltered1.data(), outfftFiltered1.data(), FFTW_BACKWARD, FFTW_ESTIMATE); //backtransform of filtered image
+
+			//Fourier transform
+			fftw_execute(p0);
+			fftw_execute(p1);
+
+			//Ramp filtering
+			for (int i = 0; i < range; i++) {
+				infftFiltered0[i][0] = out0[i][0] * ramp[i];
+				infftFiltered0[i][1] = out0[i][1] * ramp[i];
+				infftFiltered1[i][0] = out1[i][0] * ramp[i];
+				infftFiltered1[i][1] = out1[i][1] * ramp[i];
+			}
+			//Inverse fourier transform
+			fftw_execute(pBackFiltered0);
+			fftw_execute(pBackFiltered1);
+
+
+			for (int i = 0; i <range; i++) {
+				//scale and set pixel in output image
+				v0s[i] = outfftFiltered0[i][0] / range;
+				v1s[i] = outfftFiltered1[i][0] / range;
+
+			}
+			
+			fftw_destroy_plan(p0);
+			fftw_destroy_plan(pBackFiltered0);
+			fftw_destroy_plan(p1);
+			fftw_destroy_plan(pBackFiltered1);
+		}
+
+
+
+
+
+
+
+
+
+
+
 
 		// Return sum of squared differences of redundant samples
 		double metric=0;

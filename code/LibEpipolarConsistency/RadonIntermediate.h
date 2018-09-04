@@ -119,6 +119,7 @@ namespace EpipolarConsistency
 		/// Runs Cuda kernel for Radon transform computation.
 		void compute(const UtilsCuda::BindlessTexture2D<float>& projectionData, int size_alpha, int size_t, bool computeDerivative);
 
+		/// filter Data in fourier space
 		void filterRadonData(int filterType);
 
 	};

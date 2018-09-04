@@ -29,7 +29,7 @@ namespace EpipolarConsistency
 		m_raw_gpu=new UtilsCuda::MemoryBlock<float>(projectionData.size(0)*projectionData.size(1), projectionData);
 		// Temporary texture
 		UtilsCuda::BindlessTexture2D<float> tmp_tex(projectionData.size(0),projectionData.size(1),*m_raw_gpu,true);
-		compute(tmp_tex,size_alpha,size_t, filterType !=0);
+		compute(tmp_tex,size_alpha,size_t, filterType ==0);
 
 		filterRadonData(filterType);
 	}
@@ -45,7 +45,7 @@ namespace EpipolarConsistency
 		, m_tex(0x0)
 	{
 		m_raw_gpu=new UtilsCuda::MemoryBlock<float>();
-		compute(projectionData,size_alpha,size_t,filterType!=0);
+		compute(projectionData,size_alpha,size_t,filterType==0);
 		// 2do
 		filterRadonData(filterType);
 
@@ -219,73 +219,81 @@ namespace EpipolarConsistency
 		for (int i = 0; i < n_t; i++) {
 			float x = (abs((i - n_t / 2.0) / (n_t / 2.0))*Pi / 2.0) - Pi / 2.0;
 			n[i] = i - n_t / 2.0;
-			ramp[i] = (n_t / 2.0 - abs(i - n_t / 2.0)) / (n_t / 2.0);
+			ramp[i] = (n_t / 2.0 - abs(i - n_t / 2.0));
 			cosine[i] = cos(x)*ramp[i];
 			sinc[i] = ((x != 0) ? sin(x) / (x) : 1);
 			sinc[i] *= ramp[i];
 		}
+		readback();
 
+		//per column in radon image do:
 		for (int j = 0; j < n_alpha; j++) {
-
+			
+			// create plans and their corresponding in and output for fft
 			fftw_plan p, pBackFiltered;
 			std::vector<fftw_complex> in(n_t), out(n_t), infftFiltered(n_t), outfftFiltered(n_t);
 
+			//plan transformations
 			p = fftw_plan_dft_1d(n_t, in.data(), out.data(), FFTW_FORWARD, FFTW_ESTIMATE); //fourier transform
 			pBackFiltered = fftw_plan_dft_1d(n_t, infftFiltered.data(), outfftFiltered.data(), FFTW_BACKWARD, FFTW_ESTIMATE); //backtransform of filtered image
-		
-			readback();
 
+			//initialise complex input for fftw with radon-image
 			for (int i = 0; i < n_t; i++) {
 
 				in[i][0] = data().pixel(j, i); //real
 				in[i][1] = 0.0; //complex
-		}
-		//execute  fourier
-		fftw_execute(p);
+			}
 
-		for (int i = 0; i < n_t; i++) {
+			//execute forward fourier
+			fftw_execute(p);
 
+			//filter column in fourier spectrum
 			switch (filterType) {
 
-			case Filter::Ramp:
-				infftFiltered[i][0] = out[i][0] * ramp[i];
-				infftFiltered[i][1] = out[i][1] * ramp[i];
-				break;
+				case Filter::Ramp:
+					for (int i = 0; i < n_t; i++) {
+						infftFiltered[i][0] = out[i][0] * ramp[i];
+						infftFiltered[i][1] = out[i][1] * ramp[i];
+					}
+					break;
 
-			case Filter::SheppLogan:
-				infftFiltered[i][0] = out[i][0] * sinc[i];
-				infftFiltered[i][1] = out[i][1] * sinc[i];
-				break;
+				case Filter::SheppLogan:
+					for (int i = 0; i < n_t; i++) {
+						infftFiltered[i][0] = out[i][0] * sinc[i];
+						infftFiltered[i][1] = out[i][1] * sinc[i];
+					}
+					break;
 
 			case Filter::Cosine:
-				infftFiltered[i][0] = out[i][0] * cosine[i];
-				infftFiltered[i][1] = out[i][1] * cosine[i];
-				break;
+				for (int i = 0; i < n_t; i++) {
+					infftFiltered[i][0] = out[i][0] * cosine[i];
+					infftFiltered[i][1] = out[i][1] * cosine[i];
+				}
+					break;
 
 			default:
 				//no filtering
-				infftFiltered[i][0] = out[i][0];
-				infftFiltered[i][1] = out[i][1];
+				for (int i = 0; i < n_t; i++) {
+					infftFiltered[i][0] = out[i][0];
+					infftFiltered[i][1] = out[i][1];
+				}
 			}
-		}
-		fftw_execute(pBackFiltered);
+			// inverse fourier transformation
+			fftw_execute(pBackFiltered);
 
-		for (int i = 0; i < n_t; i++) {
-
-			//setting magnitude part to filtered image
-			float temp1 = outfftFiltered[i][0] / n_t;
-			float temp2 = outfftFiltered[i][1] / n_t;
-			filteredO.pixel(j, i) = sqrt(temp1*temp1 + temp2*temp2);
-			//filteredO.pixel(j, i) = temp1;
-		}
-		fftw_destroy_plan(p);
-		fftw_destroy_plan(pBackFiltered);
+			for (int i = 0; i < n_t; i++) {
+				//scale and set pixel in output image
+				filteredO.pixel(j, i) = outfftFiltered[i][0] / n_t;
+			}
+			fftw_destroy_plan(p);
+			fftw_destroy_plan(pBackFiltered);
 
 		}
 		//sending computed data to gpu level 
+		//fix...geht das noch eleganter?
 		std::map<std::string, std::string> dict;
 		writePropertiesToMeta(dict);
 		replaceRadonIntermediateData(filteredO);
-		readPropertiesFromMeta(dict);//wie geht das eleganter?
+		readPropertiesFromMeta(dict);
 	}
 } // namespace EpipolarConsistency

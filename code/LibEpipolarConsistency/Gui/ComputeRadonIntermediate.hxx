@@ -39,7 +39,7 @@ namespace EpipolarConsistency
 			// RadonIntermediate
 			GetSet<int>("Number Of Bins/Angle"    ,section,number_of_bins.angle                     ).setDescription("");
 			GetSet<int>("Number Of Bins/Distance" ,section,number_of_bins.distance                  ).setDescription("");
-			GetSetGui::Enum("Distance Filter", section, filter).setChoices("Derivative;Ramp;Shepp-Logan;Cosine;None").setDescription("");
+			GetSetGui::Enum("Distance Filter", section, filter).setChoices("Derivative();Ramp;Shepp-Logan;Cosine;None").setDescription("");
 			section.subsection("Number Of Bins").setGrouped();
 		}
 		
