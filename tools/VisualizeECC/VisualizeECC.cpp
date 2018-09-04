@@ -185,28 +185,36 @@ void gui(const GetSetInternal::Node& node)
 
 		// Main work done here: Compute redundant signals
 		std::vector<float> v0s, v1s, kappas;
+
+		std::vector<float> ref0, ref1, kappasref;
+
+
 		// compute the Epipolar Consistency metric for the two images
 		// for all angles kapppas
 		// in EpipolarConsistencyDirect.cpp
-		// save computed metrics in v0s and v1s
+		// save computed metrics in v0s and v1s		
+		
 		computeForImagePair(
 			P0, P1, I0_tex, I1_tex,
 			GetSet<double>("FBCC/Sampling/Angle Step (deg)") / 180 * Pi,
 			GetSet<int>("Radon Intermediate/Number Of Bins/Angle"),
 			GetSet<int>("Radon Intermediate/Number Of Bins/Distance"),
 			GetSet<double>("FBCC/Sampling/Object Radius"),
-			GetSet<int>("FBCC/Sampling/Mode").getValue(), (Filter)GetSet<int>("Radon Intermediate/Distance Filter").getValue(),//änderung hier 
+			(int) GetSet<int>("FBCC/Sampling/Mode").getValue(), (Filter)GetSet<int>("Radon Intermediate/Distance Filter").getValue(),//änderung hier 
 			&v0s, &v1s, &kappas
 		);
 		int n_lines = (int)kappas.size();
+
 
 		// Plot
 		Plot plot("Epipolar Consistency", true);
 		plot.setAxisLabels("Epipolar Plane Angle", "Consistency Metric [a.u.]")
 			.setAxisAngularX()
 			.showLegend();
-		plot.graph().setData(n_lines, kappas.data(), v0s.data()).setName("Image 0").setColor(1, 0, 0);
-		plot.graph().setData(n_lines, kappas.data(), v1s.data()).setName("Image 1").setColor(0, 1, 0);
+		plot.graph().setData(n_lines, kappas.data(), v0s.data()).setName("ramp filtered FBCC 0").setColor(1, 0, 0);
+		plot.graph().setData(n_lines, kappas.data(), ref0.data()).setName("ECC 0").setColor(1, 0, 1);
+		plot.graph().setData(n_lines, kappas.data(), v1s.data()).setName("ramp filtered FBCC 1").setColor(0, 1, 0);
+		plot.graph().setData(n_lines, kappas.data(), ref1.data()).setName("ECC 1").setColor(0, 1, 1);
 
 		figure0.setCallback(updateEpipolarLines);
 		figure1.setCallback(updateEpipolarLines);
@@ -231,11 +239,9 @@ int main(int argc, char ** argv)
 	GetSetGui::Section("FBCC/Images").setGrouped();
 	GetSet<double>("FBCC/Sampling/Object Radius") = 50;
 	GetSet<double>("FBCC/Sampling/Angle Step (deg)") = 0.01;
-	GetSetGui::Enum("FBCC/Sampling/Mode").setChoices("ECC;FBCC;RadonFiltering");
+	GetSetGui::Enum("FBCC/Sampling/Mode").setChoices("ECC;FBCC");
 	GetSetGui::Section("FBCC/Sampling").setGrouped();
 	GetSetGui::Button("FBCC/Update") = "Update Plots";
-
-	EpipolarConsistency::RadonIntermediateFunction().gui_declare_section("Radon Intermediate");
 
 	GetSetGui::Button("FBCC/Check Derivative") = "Check";
 
