@@ -139,21 +139,101 @@ void gui(const GetSetInternal::Node& node)
 				(int)GetSet<int>("Compare/Mode").getValue(), Filter::Ramp,
 				&v0s, &v1s, &kappasRef
 			);
+			
+			//crop signals to avoid poles
+			std::vector<float> cropKappa, cropV0, cropV1;
+			double cropRange = GetSet<float>("Compare/Crop Range(Degree)").getValue();
 
+			for (int i = 0; i < kappasRef.size(); i++) {
 
+				if (abs(kappasRef.at(i) * 180 / Pi) < cropRange) {
+					cropKappa.push_back(kappasRef.at(i));
+					cropV0.push_back(v0s[i]);
+					cropV1.push_back(v1s[i]);
+				}
+			}
+
+			std::vector<float> cropRed0, cropRed1;
+
+			for (int i = 0; i < kappas.size(); i++) {
+
+				if (abs(kappas.at(i) * 180 / Pi) < cropRange) {
+					cropRed0.push_back(redundant_samples0[i]);
+					cropRed1.push_back(redundant_samples0[i]);
+				}
+			}
+			//normalize 
 			if (GetSet<bool>("Compare/Normalize")) {
 				normalize(&v0s, 1.f);
 				normalize(&v1s, 1.f);
+				normalize(&cropV0, 1.f);
+				normalize(&cropV1, 1.f);
+				normalize(&cropRed0, 1.f);
+				normalize(&cropRed1, 1.f);
+
 			}
 
-			//add signals to plot
+			//linear regression:
+			if(GetSet<bool>("Compare/Use Linear-Regression")){
+				int l = cropKappa.size();
+				if(l == cropRed0.size()){
+
+					Eigen::MatrixXd S(l,2);
+					Eigen::MatrixXd s0(l,1);
+					
+					//init matrices
+					for (int i = 0; i < l; i++) {
+						S(i, 0) = cropV0[i];
+						S(i, 1) = 1;
+						s0(i, 0) = cropRed0[i];
+					}
+
+					Eigen::Matrix<double, 2, 1> ab;
+					auto pI = Geometry::pseudoInverse(S);
+					ab = pI*s0;
+					//print solution
+					std::cout << "a = " << ab[0] << ", b= " << ab[1] << std::endl;
+
+					std::vector<float> adjusted(cropKappa.size());
+
+					//adjust signal with computed lr parameters
+					for (int i = 0; i < adjusted.size(); i++) {
+
+						adjusted[i] = cropV0[i]*ab[0] + ab[1];
+					}
+					//new plot
+					Plot crop("Cropped data with linear regression");
+
+					crop.graph()
+						.setData((int)cropKappa.size(), cropKappa.data(), cropRed0.data())
+						.setName("0:cropped Radon ECC")
+						.setColor(black);
+					
+					crop.graph()
+						.setData((int)cropKappa.size(), cropKappa.data(), cropV0.data())
+						.setName("1:cropped compare signal")
+						.setColor(blue);
+					crop.graph()
+						.setData((int)cropKappa.size(), cropKappa.data(), adjusted.data())
+						.setName("2: adjusted signal 1 after linear regression")
+						.setColor(red);
+					crop.setAxisAngularX();
+					crop.showLegend();
+
+				}
+				else {
+					std::cerr << "Linear regression not possible: Different sampling of signals!" << std::endl;
+				}
+			}
+
 			plot.graph()
-				.setData((int)kappasRef.size(), kappasRef.data(), v0s.data())
-				.setName("Compare 0")
+				.setData((int)cropKappa.size(), cropKappa.data(), cropV0.data())
+				.setName("compared signal 0")
 				.setColor(blue);
+
 			plot.graph()
-				.setData((int)kappasRef.size(), kappasRef.data(), v1s.data())
-				.setName("Compare 1")
+				.setData((int)cropKappa.size(), cropKappa.data(), cropV1.data())
+				.setName("compared signal 1")
 				.setColor(green);
 		}
 
@@ -214,6 +294,8 @@ int main(int argc, char ** argv)
 	GetSet<double>("Compare/Object Radius") = 50;
 	GetSet<bool>("Compare/Show Filter") = false;
 	GetSet<bool>("Compare/Normalize") = false;
+	GetSet<bool>("Compare/Use Linear-Regression") = false;
+	GetSet<double>("Compare/Crop Range(Degree)") = 10.0;
 
 	GetSetGui::Button("Epipolar Consistency/Update")="Update...";
 

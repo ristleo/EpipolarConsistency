@@ -221,10 +221,9 @@ namespace EpipolarConsistency
 			int range =kappas->size();
 
 			//possible windowing
-			for (int i = 0; i < range; i++) {
-
-				v0s[i] *= pow(sin(i / range / 10), 2);
-			}
+			//for (int i = 0; i < range; i++) {
+				//v0s[i] *= pow(sin(i / range / 10), 2);
+			//}
 			// create plans and their corresponding in- and outputs for the fft of both fbcc-signals
 			fftw_plan p0, p1, pBackFiltered0, pBackFiltered1;
 			std::vector<fftw_complex> in0(range), out0(range), infftFiltered0(range), outfftFiltered0(range);
@@ -239,6 +238,7 @@ namespace EpipolarConsistency
 				in0[i][1] = 0.0;
 				in1[i][0] = v1s[i];
 				in1[i][1] = 0.0;
+			
 			}
 
 			//plan transformation
@@ -264,7 +264,6 @@ namespace EpipolarConsistency
 			fftw_execute(pBackFiltered0);
 			fftw_execute(pBackFiltered1);
 
-
 			for (int i = 0; i <range; i++) {
 				//scale and set pixel in output image
 				v0s[i] = outfftFiltered0[i][0] / range;
@@ -277,15 +276,6 @@ namespace EpipolarConsistency
 			fftw_destroy_plan(p1);
 			fftw_destroy_plan(pBackFiltered1);
 		}
-
-
-
-
-
-
-
-
-
 
 
 
